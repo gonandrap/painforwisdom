@@ -18,6 +18,8 @@ The following subagents are available in `.claude/agents/`:
 - `kb-curator` — maintains the Obsidian vault and evolves the book outline
 - `research-curator` — finds and verifies specific references, saves to vault
 - `notion-research-logger` — creates Notion tasks from research reports
+- `notion-blog-post-logger` — logs the generated blog post to the Notion "Blog post pending publications" database
+- `blog-post-catchy-title` — revisits the blog post title in Notion for marketing appeal while keeping the blog's voice
 
 ## Notion
 Research Tasks database: https://www.notion.so/64b70c23f694412895b72a383001c0f2
@@ -57,12 +59,16 @@ to each subagent as part of their input. The run directory structure will be:
 	│  └── extraction_report.md
     	├── kb-curator/
     	│  └── curator_summary.md
+    	├── painforwisdom-writer/
+    	│  └── blog_post.md
+    	├── notion-blog-post-logger/
+    	│  └── notion_blog_summary.md
+    	├── blog-post-catchy-title/
+    	│  └── title_update_summary.md
     	├── research-curator/
     	│  └── research_report.csv
-    	├── notion-research-logger/
-    	│   └── notion_summary.md
-    	└── painforwisdom-writer/
-  	    └── blog_post.md
+    	└── notion-research-logger/
+  	    └── notion_summary.md
 ```
 
 ### How to trigger
@@ -89,7 +95,7 @@ Files must follow the naming convention: transcript_YYYY-MM-DD.txt
 6. Fully read each subagent's output file before invoking the next stage
 7. If a required stage fails verification, stop and report — do not continue
 8. Pass explicit input to each subagent — never assume they share context
-9. **Never fall back to a general-purpose agent when a specialized agent is unavailable.** If a named agent (coaching-thought-extractor, kb-curator, research-curator, notion-research-logger, painforwisdom-writer) cannot be invoked, stop the pipeline immediately and report which agent failed to load. Do not substitute, approximate, or continue with any other agent type.
+9. **Never fall back to a general-purpose agent when a specialized agent is unavailable.** If a named agent (coaching-thought-extractor, kb-curator, research-curator, notion-research-logger, notion-blog-post-logger, blog-post-catchy-title, painforwisdom-writer) cannot be invoked, stop the pipeline immediately and report which agent failed to load. Do not substitute, approximate, or continue with any other agent type.
 
 ---
 
@@ -160,63 +166,7 @@ to Gonzalo, collect the response, pass it back to kb-curator, then continue.
 
 ---
 
-### Stage 3 — research-curator
-
-**Invoke with:**
-- Filename of the entry created in Stage 2. Entry file name is $FILE_ENTRY
-- Content of $ENTRY_FILE
-- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
-
-**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv`
-
-**Verify output file:**
-```bash
-FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv
-if [ -f $FILE ]; then
-    echo "exists"
-else
-    echo "not found"
-fi
-```
-- File exists and has at least one data row → continue to Stage 4
-- File missing or empty → log as non-blocking failure, continue to Stage 4
-
-**Verify vault side effect:**
-```bash
-grep -l "## Research" ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md
-```
-- Section exists → continue
-- Missing → log as non-blocking failure, continue
-
----
-
-### Stage 4 — notion-research-logger
-
-**Invoke with:**
-- Full contents of `./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv`
-- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
-
-**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-research-logger/notion_summary.md`
-
-**Verify output file:**
-```bash
-FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-research-logger/notion_summary.md
-if [ -f $FILE ]; then
-    echo "exists"
-else
-    echo "not found"
-fi
-```
-- File exists → read task count from file
-- File missing → log failure, continue (non-blocking)
-
-**Verify:** task count in file matches reference count in research_report.csv
-- Matches → continue
-- Mismatches → log discrepancy, continue (non-blocking)
-
----
-
-### Stage 5 — painforwisdom-writer
+### Stage 3 — painforwisdom-writer
 
 **Only runs if:**
 - Pipeline mode is Full (not KB only)
@@ -242,6 +192,112 @@ fi
 
 ---
 
+### Stage 4 — notion-blog-post-logger
+
+**Only runs if:** Stage 3 (painforwisdom-writer) produced a blog_post.md
+
+**Invoke with:**
+- Full content of `./processed/$RUN_ID/$INPUT_TRANSCRIPT/painforwisdom-writer/blog_post.md`
+- Video date
+- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
+
+**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-blog-post-logger/notion_blog_summary.md`
+
+**Verify output file:**
+```bash
+FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-blog-post-logger/notion_blog_summary.md
+if [ -f $FILE ]; then
+    echo "exists"
+else
+    echo "not found"
+fi
+```
+- File exists and contains a Notion URL → continue to Stage 5
+- File missing → log failure, continue (non-blocking)
+
+---
+
+### Stage 5 — blog-post-catchy-title
+
+**Only runs if:** Stage 4 (notion-blog-post-logger) produced a notion_blog_summary.md with a Notion URL
+
+**Invoke with:**
+- Notion page URL read from `./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-blog-post-logger/notion_blog_summary.md`
+- Vault path: `$VAULT_PATH`
+- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
+
+**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/blog-post-catchy-title/title_update_summary.md`
+
+**Verify output file:**
+```bash
+FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/blog-post-catchy-title/title_update_summary.md
+if [ -f $FILE ]; then
+    echo "exists"
+else
+    echo "not found"
+fi
+```
+- File exists → continue to Stage 6
+- File missing → log failure, continue (non-blocking)
+
+---
+
+### Stage 6 — research-curator
+
+**Invoke with:**
+- Filename of the entry created in Stage 2. Entry file name is $FILE_ENTRY
+- Content of $ENTRY_FILE
+- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
+
+**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv`
+
+**Verify output file:**
+```bash
+FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv
+if [ -f $FILE ]; then
+    echo "exists"
+else
+    echo "not found"
+fi
+```
+- File exists and has at least one data row → continue to Stage 7
+- File missing or empty → log as non-blocking failure, continue to Stage 7
+
+**Verify vault side effect:**
+```bash
+grep -l "## Research" ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md
+```
+- Section exists → continue
+- Missing → log as non-blocking failure, continue
+
+---
+
+### Stage 7 — notion-research-logger
+
+**Invoke with:**
+- Full contents of `./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv`
+- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
+
+**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-research-logger/notion_summary.md`
+
+**Verify output file:**
+```bash
+FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-research-logger/notion_summary.md
+if [ -f $FILE ]; then
+    echo "exists"
+else
+    echo "not found"
+fi
+```
+- File exists → read task count from file
+- File missing → log failure, continue (non-blocking)
+
+**Verify:** task count in file matches reference count in research_report.csv
+- Matches → continue
+- Mismatches → log discrepancy, continue (non-blocking)
+
+---
+
 ### Final summary
 
 After all stages complete:
@@ -255,11 +311,13 @@ Use the actual file listing to confirm what was produced, then report:
 
 Run directory: ./processed/20260226_143022/transcript_2026-02-10
 
-Stage 1 — extraction:     [✓ extraction_report.md / ✗ failed]  — [Strong/Weak/Flagged]
-Stage 2 — kb-curator:     [✓ curator_summary.md + vault entry / ✗ failed]
-Stage 3 — research:       [✓ research_report.csv (N refs) / ✗ failed]
-Stage 4 — notion logger:  [✓ notion_summary.md (N tasks) / ✗ failed]
-Stage 5 — blog writer:    [✓ blog_post.md / skipped (Weak) / skipped (KB only)]
+Stage 1 — extraction:        [✓ extraction_report.md / ✗ failed]  — [Strong/Weak/Flagged]
+Stage 2 — kb-curator:        [✓ curator_summary.md + vault entry / ✗ failed]
+Stage 3 — blog writer:       [✓ blog_post.md / skipped (Weak) / skipped (KB only)]
+Stage 4 — notion blog post:  [✓ notion_blog_summary.md / skipped (no post) / ✗ failed]
+Stage 5 — title optimizer:   [✓ title_update_summary.md (N candidates appended) / skipped (no post) / ✗ failed]
+Stage 6 — research:          [✓ research_report.csv (N refs) / ✗ failed]
+Stage 7 — notion logger:     [✓ notion_summary.md (N tasks) / ✗ failed]
 
 Vault entry: [[YYYY-MM-DD-slug]]
 Notion: N new research tasks added
@@ -276,11 +334,13 @@ Notion: N new research tasks added
 | 1 | Content Flagged | Stop, present flag to Gonzalo, wait |
 | 2 | Output file missing | Stop pipeline, report |
 | 2 | Vault entry file missing | Stop pipeline, report |
-| 3 | Output file missing | Log, continue |
-| 3 | Vault research section missing | Log, continue |
-| 4 | Output file missing | Log, continue |
-| 4 | Task count mismatch | Log, continue |
-| 5 | Blog post file missing or empty | Re-invoke once, then report |
+| 3 | Blog post file missing or empty | Re-invoke once, then report |
+| 4 | Output file missing | Log, continue (non-blocking) |
+| 5 | Output file missing | Log, continue (non-blocking) |
+| 6 | Output file missing | Log, continue |
+| 6 | Vault research section missing | Log, continue |
+| 7 | Output file missing | Log, continue |
+| 7 | Task count mismatch | Log, continue |
 
 ---
 
