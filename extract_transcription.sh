@@ -37,17 +37,19 @@ $WHISPER $TEMP_AUDIO_FILE_PATH --model large --language "$LANGUAGE" --output_for
 
 INPUT_FILE_NO_EXTENSION=$(basename "${INPUT_FILE%%.*}")
 INPUT_BASE_DIR=$(dirname "${INPUT_FILE}")
+OUTPUT_DIR="$INPUT_BASE_DIR/auto-generated"
+mkdir -p "$OUTPUT_DIR"
 
-TARGET_TRANSCRIPT_FILENAME=$INPUT_BASE_DIR/transcript-$DATE.txt
+TARGET_TRANSCRIPT_FILENAME=$OUTPUT_DIR/transcript_$DATE.txt
 if [ -f "$TARGET_TRANSCRIPT_FILENAME" ]; then
     echo "Target transcript filename exists, creating unique filename"
 
     i=1
     # Loop until a non-existent filename is found
-    while [[ -e "$INPUT_BASE_DIR/transcript-$DATE-$i.txt" ]]; do
+    while [[ -e "$OUTPUT_DIR/transcript_${DATE}_$i.txt" ]]; do
         ((i++))
     done
-    TARGET_TRANSCRIPT_FILENAME=$INPUT_BASE_DIR/transcript-$DATE-$i.txt
+    TARGET_TRANSCRIPT_FILENAME=$OUTPUT_DIR/transcript_${DATE}_$i.txt
 fi
 
 if [ -f "$TEMP_AUDIO_FILE_PATH" ]; then
