@@ -77,7 +77,6 @@ Video date: YYYY-MM-DD [paste transcript]"
 **Bulk ingestion:**
 "process all transcripts in [directory path]"
 Files must follow the naming convention: transcript_YYYY-MM-DD.txt
-
 ---
 
 ### Execution rules (always follow these)

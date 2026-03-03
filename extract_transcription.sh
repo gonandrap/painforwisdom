@@ -47,7 +47,7 @@ if [ -f "$TARGET_TRANSCRIPT_FILENAME" ]; then
     while [[ -e "$INPUT_BASE_DIR/transcript-$DATE-$i.txt" ]]; do
         ((i++))
     done
-    TARGET_TRANSCRIPT_FILENAME=transcript-$DATE-$i.txt
+    TARGET_TRANSCRIPT_FILENAME=$INPUT_BASE_DIR/transcript-$DATE-$i.txt
 fi
 
 if [ -f "$TEMP_AUDIO_FILE_PATH" ]; then
@@ -56,5 +56,5 @@ if [ -f "$TEMP_AUDIO_FILE_PATH" ]; then
 fi
 TRANSCRIPT_FILENAME=$(basename $TEMP_AUDIO_FILENAME .m4a).txt
 if [ -f "$TRANSCRIPT_FILENAME"  ]; then
-    mv $TRANSCRIPT_FILENAME $INPUT_BASE_DIR/$TARGET_TRANSCRIPT_FILENAME
+    mv $TRANSCRIPT_FILENAME $TARGET_TRANSCRIPT_FILENAME
 fi
