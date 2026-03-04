@@ -1,13 +1,23 @@
 #!/bin/bash
+# Strict mode:
+# -e: stop on command errors
+# -u: treat unset vars as errors
+# -o pipefail: fail pipeline if any command fails
 set -euo pipefail
 
 # $1 : input file (video)
 # $2 : language (optional; default: English)
 # $3 : date (optional; YYYY-MM-DD; default: today)
+#
+# Backend selection:
+#   WHISPER_BACKEND=local  -> local whisper only (default)
+#   WHISPER_BACKEND=openai -> OpenAI API helper only
+#   WHISPER_BACKEND=auto   -> local first, then OpenAI helper fallback
 
 INPUT_FILE="${1:-}"
 LANGUAGE="${2:-English}"
 DATE="${3:-$(date +"%Y-%m-%d")}"  # shellcheck disable=SC2016
+WHISPER_BACKEND="${WHISPER_BACKEND:-local}"
 
 if [ -z "$INPUT_FILE" ]; then
     echo "Missing input file"
@@ -48,35 +58,64 @@ ffmpeg -y -i "$INPUT_FILE" -vn -ac 1 -ar 16000 -b:a 32k "$TEMP_AUDIO_FILE_PATH" 
 OPENAI_WHISPER_HELPER="/home/gonzalo/.npm-global/lib/node_modules/openclaw/skills/openai-whisper-api/scripts/transcribe.sh"
 CONDA_WHISPER="/opt/miniconda3/envs/painforwisdom/bin/whisper"
 
-if [ -f "$OPENAI_WHISPER_HELPER" ]; then
-    echo "Using OpenAI Whisper API helper"
-    # Helper resolves API key from env/config as configured in the skill.
-    bash "$OPENAI_WHISPER_HELPER" "$TEMP_AUDIO_FILE_PATH" --language "$LANGUAGE" --out "$TARGET_TRANSCRIPT_FILENAME" >/dev/null
-elif [ -x "$CONDA_WHISPER" ]; then
-    echo "Using local conda whisper binary"
-    "$CONDA_WHISPER" "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
+run_local_whisper() {
+    if [ -x "$CONDA_WHISPER" ]; then
+        echo "Using local conda whisper binary"
+        "$CONDA_WHISPER" "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
+    elif command -v whisper >/dev/null 2>&1; then
+        echo "Using whisper from PATH"
+        whisper "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
+    else
+        return 1
+    fi
+
     LOCAL_TXT="$TMP_DIR/$(basename "$TEMP_AUDIO_FILE_PATH" .mp3).txt"
     if [ ! -f "$LOCAL_TXT" ]; then
         echo "Whisper completed but transcript was not found"
         exit 1
     fi
     mv "$LOCAL_TXT" "$TARGET_TRANSCRIPT_FILENAME"
-elif command -v whisper >/dev/null 2>&1; then
-    echo "Using whisper from PATH"
-    whisper "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
-    LOCAL_TXT="$TMP_DIR/$(basename "$TEMP_AUDIO_FILE_PATH" .mp3).txt"
-    if [ ! -f "$LOCAL_TXT" ]; then
-        echo "Whisper completed but transcript was not found"
-        exit 1
+    return 0
+}
+
+run_openai_whisper() {
+    if [ -f "$OPENAI_WHISPER_HELPER" ]; then
+        echo "Using OpenAI Whisper API helper"
+        bash "$OPENAI_WHISPER_HELPER" "$TEMP_AUDIO_FILE_PATH" --language "$LANGUAGE" --out "$TARGET_TRANSCRIPT_FILENAME" >/dev/null
+        return 0
     fi
-    mv "$LOCAL_TXT" "$TARGET_TRANSCRIPT_FILENAME"
-else
-    echo "No transcription backend available."
-    echo "Checked:"
-    echo "- OpenAI helper: $OPENAI_WHISPER_HELPER"
-    echo "- Conda whisper: $CONDA_WHISPER"
-    echo "- whisper in PATH"
-    exit 1
-fi
+    return 1
+}
+
+case "$WHISPER_BACKEND" in
+    local)
+        run_local_whisper || {
+            echo "Local whisper backend not available."
+            echo "Checked:"
+            echo "- Conda whisper: $CONDA_WHISPER"
+            echo "- whisper in PATH"
+            exit 1
+        }
+        ;;
+    openai)
+        run_openai_whisper || {
+            echo "OpenAI helper backend not available: $OPENAI_WHISPER_HELPER"
+            exit 1
+        }
+        ;;
+    auto)
+        if ! run_local_whisper; then
+            run_openai_whisper || {
+                echo "No transcription backend available."
+                echo "Checked local + OpenAI helper."
+                exit 1
+            }
+        fi
+        ;;
+    *)
+        echo "Invalid WHISPER_BACKEND: $WHISPER_BACKEND (expected: local|openai|auto)"
+        exit 1
+        ;;
+esac
 
 echo "✓ Transcript written: $TARGET_TRANSCRIPT_FILENAME"
