@@ -1,14 +1,64 @@
 #!/bin/bash
 # Usage:
+#   ./run_pipeline.sh [--yes] [--no-input] [--bulk] <directory|file>
+# Examples:
 #   ./run_pipeline.sh ./bulk-ingestion-up-to-feb-27/
+#   ./run_pipeline.sh --yes ./bulk-ingestion-up-to-feb-27/
 #   ./run_pipeline.sh ./bulk-ingestion-up-to-feb-27/transcript_2026-02-10.txt
 #   ./run_pipeline.sh ./runs/2026-02-17_run.mp4
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INPUT=$1
+set -euo pipefail
 
-if [ -z "$INPUT" ]; then
-    echo "Usage: ./run_pipeline.sh <directory|file>"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AUTO_YES=false
+NO_INPUT=false
+FORCE_BULK=false
+INPUT=""
+
+usage() {
+    cat <<EOH
+Usage: ./run_pipeline.sh [--yes] [--no-input] [--bulk] <directory|file>
+
+Options:
+  --yes       Auto-confirm bulk processing prompts.
+  --no-input  Non-interactive mode (never prompt; proceed automatically where safe).
+  --bulk      Force bulk behavior when INPUT is a directory.
+  -h, --help  Show this help.
+EOH
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --yes)
+            AUTO_YES=true
+            shift
+            ;;
+        --no-input)
+            NO_INPUT=true
+            shift
+            ;;
+        --bulk)
+            FORCE_BULK=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --*)
+            echo "✗ Unknown option: $1"
+            usage
+            exit 1
+            ;;
+        *)
+            INPUT="$1"
+            shift
+            ;;
+    esac
+done
+
+if [ -z "${INPUT:-}" ]; then
+    usage
     exit 1
 fi
 
@@ -31,6 +81,16 @@ extract_date_from_filename() {
     if [ -n "$d" ]; then
         echo "${d:0:4}-${d:4:2}-${d:6:2}"
     fi
+}
+
+confirm_bulk() {
+    local count="$1"
+    if [ "$AUTO_YES" = true ] || [ "$NO_INPUT" = true ]; then
+        return 0
+    fi
+
+    read -r -p "Process all ${count} files? (yes/no): " CONFIRM
+    [ "$CONFIRM" = "yes" ]
 }
 
 # Video detection and transcript extraction
@@ -56,12 +116,12 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
 fi
 
 run_file() {
-    local FILE=$1
-    local DATE=$(basename $FILE .txt | sed 's/transcript_//')
-    local RUN_ID="${DATE}_$(date +%H%M%S)"
+    local FILE="$1"
+    local DATE
+    DATE=$(basename "$FILE" .txt | sed 's/transcript_//')
 
     echo "Processing: $FILE"
-    claude "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat $FILE)"
+    claude "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
 }
 
 # if the original INPUT was a video file, then INPUT will refer to the transcript extracted
@@ -104,15 +164,21 @@ elif [ -d "$INPUT" ]; then
     echo "Files to process:"
     echo "$FILES" | nl
     echo ""
-    read -p "Process all $(echo "$FILES" | wc -l | xargs) files? (yes/no): " CONFIRM
-    if [ "$CONFIRM" != "yes" ]; then
-        echo "Aborted."
-        exit 0
+
+    COUNT=$(echo "$FILES" | wc -l | xargs)
+    if [ "$FORCE_BULK" = true ] || [ "$AUTO_YES" = true ] || [ "$NO_INPUT" = true ]; then
+        :
+    else
+        if ! confirm_bulk "$COUNT"; then
+            echo "Aborted."
+            exit 0
+        fi
     fi
 
-    for FILE in $FILES; do
+    while IFS= read -r FILE; do
+        [ -n "$FILE" ] || continue
         run_file "$FILE"
-    done
+    done <<< "$FILES"
 
     echo ""
     echo "✓ Bulk ingestion complete."

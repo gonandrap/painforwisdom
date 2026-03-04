@@ -24,7 +24,7 @@ Extract a transcription from a video file using the `extract_transcription.sh` s
 
 4. Run the extraction script from the project root:
    ```bash
-   bash /Users/gonzalo.raposo/workspace/painforwisdom/extract_transcription.sh "$VIDEO_FILE" "$LANGUAGE" "$DATE"
+   bash ./extract_transcription.sh "$VIDEO_FILE" "$LANGUAGE" "$DATE"
    ```
    Stream the output to the user so progress is visible.
 
