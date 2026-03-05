@@ -139,7 +139,7 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
     capture_transcript_candidates "$(dirname "$INPUT")" "$DATE" "$BEFORE_LIST"
 
     echo "Video detected. Extracting transcript (date: $DATE)..."
-    "${CLAUDE_ARR[@]}" -p "/extract-transcription \"$INPUT\" en $DATE"
+    ./extract_transcription.sh "$INPUT" "en" "$DATE"
 
     TRANSCRIPT=$(find_new_transcript_for_date "$(dirname "$INPUT")" "$DATE" "$BEFORE_LIST")
     rm -f "$BEFORE_LIST"
@@ -185,7 +185,7 @@ elif [ -d "$INPUT" ]; then
             capture_transcript_candidates "$(dirname "$f")" "$DATE" "$BEFORE_LIST"
 
             echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
-            "${CLAUDE_ARR[@]}" -p "/extract-transcription \"$f\" en $DATE"
+            ./extract_transcription.sh "$f" "en" "$DATE"
 
             TRANSCRIPT=$(find_new_transcript_for_date "$(dirname "$f")" "$DATE" "$BEFORE_LIST")
             rm -f "$BEFORE_LIST"
