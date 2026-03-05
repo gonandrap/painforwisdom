@@ -57,6 +57,8 @@ ffmpeg -y -i "$INPUT_FILE" -vn -ac 1 -ar 16000 -b:a 32k "$TEMP_AUDIO_FILE_PATH" 
 
 OPENAI_WHISPER_HELPER="/home/gonzalo/.npm-global/lib/node_modules/openclaw/skills/openai-whisper-api/scripts/transcribe.sh"
 CONDA_WHISPER="/opt/miniconda3/envs/painforwisdom/bin/whisper"
+BREW_WHISPER="/home/linuxbrew/.linuxbrew/bin/whisper"
+USR_LOCAL_WHISPER="/usr/local/bin/whisper"
 
 run_local_whisper() {
     if [ -x "$CONDA_WHISPER" ]; then
@@ -65,6 +67,12 @@ run_local_whisper() {
     elif command -v whisper >/dev/null 2>&1; then
         echo "Using whisper from PATH"
         whisper "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
+    elif [ -x "$BREW_WHISPER" ]; then
+        echo "Using Homebrew whisper binary"
+        "$BREW_WHISPER" "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
+    elif [ -x "$USR_LOCAL_WHISPER" ]; then
+        echo "Using /usr/local whisper binary"
+        "$USR_LOCAL_WHISPER" "$TEMP_AUDIO_FILE_PATH" --model large --language "$LANGUAGE" --output_format txt --output_dir "$TMP_DIR" >/dev/null
     else
         return 1
     fi
@@ -94,6 +102,8 @@ case "$WHISPER_BACKEND" in
             echo "Checked:"
             echo "- Conda whisper: $CONDA_WHISPER"
             echo "- whisper in PATH"
+            echo "- Homebrew whisper: $BREW_WHISPER"
+            echo "- /usr/local whisper: $USR_LOCAL_WHISPER"
             exit 1
         }
         ;;
