@@ -13,6 +13,12 @@ AUTO_YES=false
 NO_INPUT=false
 INPUT=""
 
+# Set CLAUDE_CMD to override invocation, e.g.:
+#   CLAUDE_CMD="claude --dangerously-skip-permissions"
+CLAUDE_CMD_DEFAULT="claude --permission-mode dontAsk"
+CLAUDE_CMD="${CLAUDE_CMD:-$CLAUDE_CMD_DEFAULT}"
+read -r -a CLAUDE_ARR <<< "$CLAUDE_CMD"
+
 usage() {
     cat <<EOH
 Usage: ./run_pipeline.sh [--yes] [--no-input] <directory|file>
@@ -74,7 +80,41 @@ extract_date_from_filename() {
     d=$(echo "$name" | grep -oE '[0-9]{8}' | head -1)
     if [ -n "$d" ]; then
         echo "${d:0:4}-${d:4:2}-${d:6:2}"
+        return
     fi
+
+    # Last fallback: use file modified date.
+    if [ -f "$1" ]; then
+        date -r "$1" +"%Y-%m-%d"
+    fi
+}
+
+find_latest_transcript_for_date() {
+    local base_dir="$1"
+    local date="$2"
+    local latest
+    latest=$(ls -1t "$base_dir"/auto-generated/transcript_"$date"*.txt 2>/dev/null | head -n1 || true)
+    echo "$latest"
+}
+
+capture_transcript_candidates() {
+    local base_dir="$1"
+    local date="$2"
+    local out_file="$3"
+    ls -1 "$base_dir"/auto-generated/transcript_"$date"*.txt 2>/dev/null | sort > "$out_file" || true
+}
+
+find_new_transcript_for_date() {
+    local base_dir="$1"
+    local date="$2"
+    local before_file="$3"
+    local newest
+
+    newest=$(ls -1t "$base_dir"/auto-generated/transcript_"$date"*.txt 2>/dev/null \
+        | grep -vxF -f "$before_file" \
+        | head -n1 || true)
+
+    echo "$newest"
 }
 
 confirm_bulk() {
@@ -95,13 +135,18 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
         exit 1
     fi
 
+    BEFORE_LIST=$(mktemp)
+    capture_transcript_candidates "$(dirname "$INPUT")" "$DATE" "$BEFORE_LIST"
+
     echo "Video detected. Extracting transcript (date: $DATE)..."
-    claude -p "/extract-transcription \"$INPUT\" English $DATE"
+    "${CLAUDE_ARR[@]}" -p "/extract-transcription \"$INPUT\" en $DATE"
 
-    TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
+    TRANSCRIPT=$(find_new_transcript_for_date "$(dirname "$INPUT")" "$DATE" "$BEFORE_LIST")
+    rm -f "$BEFORE_LIST"
 
-    if [ ! -f "$TRANSCRIPT" ]; then
-        echo "✗ Transcript not found after extraction. Expected: $TRANSCRIPT"
+    if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
+        echo "✗ No NEW transcript was generated for this video/date ($DATE)."
+        echo "  Refusing to fall back to older transcripts to avoid processing the wrong file."
         exit 1
     fi
 
@@ -115,7 +160,7 @@ run_file() {
     DATE=$(basename "$FILE" .txt | sed 's/transcript_//')
 
     echo "Processing: $FILE"
-    claude "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
+    "${CLAUDE_ARR[@]}" "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
 }
 
 # if the original INPUT was a video file, then INPUT will refer to the transcript extracted
@@ -123,35 +168,46 @@ if [ -f "$INPUT" ]; then
     run_file "$INPUT"
 
 elif [ -d "$INPUT" ]; then
-    # Extract transcripts from any video files in the directory first
+    # Build explicit processing queue; do not infer "latest" transcript for a date.
+    FILES=""
+
     for f in "$INPUT"/*; do
         [ -f "$f" ] || continue
+
         if is_video "$f"; then
             DATE=$(extract_date_from_filename "$f")
             if [ -z "$DATE" ]; then
-                echo "✗ Could not extract date from video: $f — skipping"
-                continue
+                echo "✗ Could not extract date from video: $f"
+                exit 1
             fi
-            TRANSCRIPT="$(dirname "$f")/auto-generated/transcript_${DATE}.txt"
-            if [ -f "$TRANSCRIPT" ]; then
-                echo "✓ Transcript already exists for $DATE — skipping extraction"
-            else
-                echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
-                claude -p "/extract-transcription \"$f\" English $DATE"
-                if [ ! -f "$TRANSCRIPT" ]; then
-                    echo "✗ Transcript not found after extraction. Expected: $TRANSCRIPT — skipping"
-                else
-                    echo "✓ Transcript extracted: $TRANSCRIPT"
-                fi
+
+            BEFORE_LIST=$(mktemp)
+            capture_transcript_candidates "$(dirname "$f")" "$DATE" "$BEFORE_LIST"
+
+            echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
+            "${CLAUDE_ARR[@]}" -p "/extract-transcription \"$f\" en $DATE"
+
+            TRANSCRIPT=$(find_new_transcript_for_date "$(dirname "$f")" "$DATE" "$BEFORE_LIST")
+            rm -f "$BEFORE_LIST"
+
+            if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
+                echo "✗ No NEW transcript generated for video: $f"
+                echo "  Refusing to use older transcripts for that date."
+                exit 1
             fi
+
+            echo "✓ Transcript extracted: $TRANSCRIPT"
+            FILES+="$TRANSCRIPT"$'\n'
+
+        elif [[ "$(basename "$f")" == transcript_*.txt ]]; then
+            FILES+="$f"$'\n'
         fi
     done
 
-    FILES=$(find "$INPUT" -maxdepth 2 -name "transcript_*.txt" 2>/dev/null | \
-        awk -F/ '{print $NF, $0}' | sort | cut -d' ' -f2-)
+    FILES=$(echo "$FILES" | sed '/^$/d' | awk -F/ '{print $NF, $0}' | sort | cut -d' ' -f2-)
 
     if [ -z "$FILES" ]; then
-        echo "✗ No transcript_*.txt files found in $INPUT"
+        echo "✗ No files to process in $INPUT (expected videos and/or transcript_*.txt)"
         exit 1
     fi
 
