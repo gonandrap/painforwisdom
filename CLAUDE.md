@@ -146,6 +146,11 @@ fi
 
 **Read** the Content Quality field from the file.
 
+**On success:** after verifying the file exists and reading Content Quality, send:
+```bash
+./telegram_io.sh send "✅ Stage 1 complete — Coaching thought extracted\nFile: $INPUT_TRANSCRIPT\nQuality: <Strong|Weak|Flagged>"
+```
+
 **Gate:**
 - Flagged → send flag summary via Telegram and wait for instructions:
   ```bash
@@ -182,7 +187,10 @@ fi
 ```bash
 ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
 ```
-- Entry file exists → continue to Stage 3
+- Entry file exists → send notification and continue to Stage 3:
+  ```bash
+  ./telegram_io.sh send "✅ Stage 2 complete — Knowledge base updated\nVault entry: $FILE_ENTRY"
+  ```
 - Entry file missing → stop pipeline, report failure
 
 **Note:** kb-curator may pause for theme/framework approval. When it does,
@@ -215,7 +223,10 @@ else
     echo "not found"
 fi
 ```
-- File exists and contains a title and body → present to Gonzalo for review
+- File exists and contains a title and body → send notification and continue:
+  ```bash
+  ./telegram_io.sh send "✅ Stage 3 complete — Blog post written\nFile: $INPUT_TRANSCRIPT/painforwisdom-writer/blog_post.md"
+  ```
 - File missing or empty → re-invoke writer once, then report
 
 ---
@@ -240,7 +251,10 @@ else
     echo "not found"
 fi
 ```
-- File exists and contains a Notion URL → continue to Stage 5
+- File exists and contains a Notion URL → send notification and continue to Stage 5:
+  ```bash
+  ./telegram_io.sh send "✅ Stage 4 complete — Blog post logged to Notion"
+  ```
 - File missing → log failure, continue (non-blocking)
 
 ---
@@ -265,7 +279,10 @@ else
     echo "not found"
 fi
 ```
-- File exists → continue to Stage 6
+- File exists → send notification and continue to Stage 6:
+  ```bash
+  ./telegram_io.sh send "✅ Stage 5 complete — Title candidates generated"
+  ```
 - File missing → log failure, continue (non-blocking)
 
 ---
@@ -288,7 +305,10 @@ else
     echo "not found"
 fi
 ```
-- File exists and has at least one data row → continue to Stage 7
+- File exists and has at least one data row → send notification and continue to Stage 7:
+  ```bash
+  ./telegram_io.sh send "✅ Stage 6 complete — Research curated\n<N> references found"
+  ```
 - File missing or empty → log as non-blocking failure, continue to Stage 7
 
 **Verify vault side effect:**
@@ -317,7 +337,10 @@ else
     echo "not found"
 fi
 ```
-- File exists → read task count from file
+- File exists → read task count from file, then send notification:
+  ```bash
+  ./telegram_io.sh send "✅ Stage 7 complete — <N> research tasks created in Notion"
+  ```
 - File missing → log failure, continue (non-blocking)
 
 **Verify:** task count in file matches reference count in research_report.csv
@@ -333,7 +356,12 @@ After all stages complete:
 find ./processed/$RUN_ID/$INPUT_TRANSCRIPT -type f | sort
 ```
 
-Use the actual file listing to confirm what was produced, then report:
+Use the actual file listing to confirm what was produced, send a final Telegram summary:
+```bash
+./telegram_io.sh send "🎉 Pipeline complete — $INPUT_TRANSCRIPT\n\nStage 1 — extraction:       <✓ Strong|✓ Weak|✗ failed>\nStage 2 — kb-curator:       <✓ vault entry created|✗ failed>\nStage 3 — blog writer:      <✓ written|skipped|✗ failed>\nStage 4 — notion post:      <✓ logged|skipped|✗ failed>\nStage 5 — title optimizer:  <✓ N candidates|skipped|✗ failed>\nStage 6 — research:         <✓ N refs|✗ failed>\nStage 7 — notion logger:    <✓ N tasks|✗ failed>"
+```
+
+Then report to terminal:
 ```
 ✓ Pipeline complete — RUN_ID: 20260226_143022
 

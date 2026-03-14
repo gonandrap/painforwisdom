@@ -271,3 +271,7 @@ case "$WHISPER_BACKEND" in
 esac
 
 echo "✓ Transcript written: $TARGET_TRANSCRIPT_FILENAME"
+
+if [ -x "$TELEGRAM" ]; then
+    "$TELEGRAM" send "✅ Transcription complete: $(basename "$TARGET_TRANSCRIPT_FILENAME")\nConfidence: OK" || true
+fi
