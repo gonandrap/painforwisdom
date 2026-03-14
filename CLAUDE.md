@@ -61,6 +61,11 @@ echo $RUN_ID
 echo $VAULT_PATH
 ```
 
+Immediately after creating the run directory, **execute this Bash command** to notify Gonzalo the pipeline has started:
+```bash
+./telegram_io.sh send "🚀 Pipeline started — $INPUT_TRANSCRIPT\nRun ID: $RUN_ID"
+```
+
 With the RUN_ID, we create the <RUN_DIR>, which basically is "./processed/<RUN_ID>/<INPUT_TRANSCRIPT>"
 being <INPUT_TRANSCRIPT> the name of the input transcript file (remember that the pipeline start with 
 that file) without the extension. Make sure that directory exist before calling subagent:
@@ -116,6 +121,7 @@ Files must follow the naming convention: transcript_YYYY-MM-DD.txt
 7. If a required stage fails verification, stop and report — do not continue
 8. Pass explicit input to each subagent — never assume they share context
 9. **Never fall back to a general-purpose agent when a specialized agent is unavailable.** If a named agent (coaching-thought-extractor, kb-curator, research-curator, notion-research-logger, notion-blog-post-logger, blog-post-catchy-title, painforwisdom-writer) cannot be invoked, stop the pipeline immediately and report which agent failed to load. Do not substitute, approximate, or continue with any other agent type.
+10. **Telegram notifications are mandatory.** Every stage completion and every input request MUST trigger a real Bash tool call to `./telegram_io.sh`. Never skip, simulate, or defer these calls. They are not optional logging — they are the only way Gonzalo knows the pipeline is progressing while away from the computer.
 
 ---
 
@@ -146,9 +152,9 @@ fi
 
 **Read** the Content Quality field from the file.
 
-**On success:** after verifying the file exists and reading Content Quality, send:
+**On success:** after verifying the file exists and reading Content Quality, **execute this Bash command** (substitute the actual quality value):
 ```bash
-./telegram_io.sh send "✅ Stage 1 complete — Coaching thought extracted\nFile: $INPUT_TRANSCRIPT\nQuality: <Strong|Weak|Flagged>"
+./telegram_io.sh send "✅ Stage 1 complete — Coaching thought extracted\nFile: $INPUT_TRANSCRIPT\nQuality: Strong"
 ```
 
 **Gate:**
@@ -187,7 +193,7 @@ fi
 ```bash
 ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
 ```
-- Entry file exists → send notification and continue to Stage 3:
+- Entry file exists → **execute this Bash command**, then continue to Stage 3:
   ```bash
   ./telegram_io.sh send "✅ Stage 2 complete — Knowledge base updated\nVault entry: $FILE_ENTRY"
   ```
@@ -223,7 +229,7 @@ else
     echo "not found"
 fi
 ```
-- File exists and contains a title and body → send notification and continue:
+- File exists and contains a title and body → **execute this Bash command**, then continue:
   ```bash
   ./telegram_io.sh send "✅ Stage 3 complete — Blog post written\nFile: $INPUT_TRANSCRIPT/painforwisdom-writer/blog_post.md"
   ```
@@ -251,7 +257,7 @@ else
     echo "not found"
 fi
 ```
-- File exists and contains a Notion URL → send notification and continue to Stage 5:
+- File exists and contains a Notion URL → **execute this Bash command**, then continue to Stage 5:
   ```bash
   ./telegram_io.sh send "✅ Stage 4 complete — Blog post logged to Notion"
   ```
@@ -279,7 +285,7 @@ else
     echo "not found"
 fi
 ```
-- File exists → send notification and continue to Stage 6:
+- File exists → **execute this Bash command**, then continue to Stage 6:
   ```bash
   ./telegram_io.sh send "✅ Stage 5 complete — Title candidates generated"
   ```
@@ -305,9 +311,9 @@ else
     echo "not found"
 fi
 ```
-- File exists and has at least one data row → send notification and continue to Stage 7:
+- File exists and has at least one data row → **execute this Bash command** (substitute actual reference count), then continue to Stage 7:
   ```bash
-  ./telegram_io.sh send "✅ Stage 6 complete — Research curated\n<N> references found"
+  ./telegram_io.sh send "✅ Stage 6 complete — Research curated\n5 references found"
   ```
 - File missing or empty → log as non-blocking failure, continue to Stage 7
 
@@ -337,9 +343,9 @@ else
     echo "not found"
 fi
 ```
-- File exists → read task count from file, then send notification:
+- File exists → read task count from file, then **execute this Bash command** (substitute actual task count):
   ```bash
-  ./telegram_io.sh send "✅ Stage 7 complete — <N> research tasks created in Notion"
+  ./telegram_io.sh send "✅ Stage 7 complete — 5 research tasks created in Notion"
   ```
 - File missing → log failure, continue (non-blocking)
 
@@ -356,7 +362,7 @@ After all stages complete:
 find ./processed/$RUN_ID/$INPUT_TRANSCRIPT -type f | sort
 ```
 
-Use the actual file listing to confirm what was produced, send a final Telegram summary:
+Use the actual file listing to confirm what was produced, then **execute this Bash command** with the actual stage results filled in:
 ```bash
 ./telegram_io.sh send "🎉 Pipeline complete — $INPUT_TRANSCRIPT\n\nStage 1 — extraction:       <✓ Strong|✓ Weak|✗ failed>\nStage 2 — kb-curator:       <✓ vault entry created|✗ failed>\nStage 3 — blog writer:      <✓ written|skipped|✗ failed>\nStage 4 — notion post:      <✓ logged|skipped|✗ failed>\nStage 5 — title optimizer:  <✓ N candidates|skipped|✗ failed>\nStage 6 — research:         <✓ N refs|✗ failed>\nStage 7 — notion logger:    <✓ N tasks|✗ failed>"
 ```
