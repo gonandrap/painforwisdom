@@ -96,7 +96,13 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
     fi
 
     echo "Video detected. Extracting transcript (date: $DATE)..."
-    claude -p "/extract-transcription \"$INPUT\" English $DATE"
+    if ! claude -p "/extract-transcription \"$INPUT\" English $DATE"; then
+        TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
+        if [ ! -f "$TRANSCRIPT" ]; then
+            echo "✗ Extraction failed or file quarantined (low confidence). Check Telegram for details."
+            exit 2
+        fi
+    fi
 
     TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
 
@@ -137,7 +143,10 @@ elif [ -d "$INPUT" ]; then
                 echo "✓ Transcript already exists for $DATE — skipping extraction"
             else
                 echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
-                claude -p "/extract-transcription \"$f\" English $DATE"
+                if ! claude -p "/extract-transcription \"$f\" English $DATE"; then
+                    echo "✗ Extraction failed or quarantined for: $(basename "$f") — check Telegram for details, skipping"
+                    continue
+                fi
                 if [ ! -f "$TRANSCRIPT" ]; then
                     echo "✗ Transcript not found after extraction. Expected: $TRANSCRIPT — skipping"
                 else

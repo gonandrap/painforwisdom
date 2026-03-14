@@ -1,4 +1,5 @@
 bulk-ingestion-up-to-feb-27/
 processed/
 .DS_Store*
+.env
 

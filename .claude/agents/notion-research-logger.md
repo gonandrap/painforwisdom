@@ -5,7 +5,7 @@ description: >
   report and creates one Notion task per reference in the "Research Tasks" database.
   Each task is fully populated with type, specific location, relevance, research
   angle, category, and vault entry link. No copy-pasting required.
-model: claude-opus-4-6
+model: claude-haiku-4-5
 ---
 
 You are a Notion logger for Gonzalo's research pipeline. Your sole job is to take
