@@ -11,6 +11,26 @@ other. Claude Code invokes each subagent sequentially, collects its output,
 verifies it, and passes it as input to the next stage. All pipeline logic lives
 here in CLAUDE.md, not inside any subagent.
 
+## Telegram I/O (async human input)
+
+When the pipeline needs Gonzalo's input, **never block waiting for terminal input**.
+Instead, use `telegram_io.sh` to send a message and wait for the reply asynchronously.
+This allows Gonzalo to step away from the computer and respond from his phone.
+
+```bash
+# Send a question and wait up to 1 hour for a reply
+REPLY=$(./telegram_io.sh ask "<your question here>")
+echo "Gonzalo replied: $REPLY"
+```
+
+- `./telegram_io.sh send "<text>"` — fire-and-forget notification
+- `./telegram_io.sh wait_reply [timeout_seconds]` — poll until reply arrives
+- `./telegram_io.sh ask "<text>" [timeout_seconds]` — send + wait (most common)
+
+Credentials are loaded from `.env` (never commit that file).
+If the script errors (missing credentials, network issue), fall back to reporting
+the blocker in the terminal and stopping the pipeline — do not silently continue.
+
 ## Subagents
 The following subagents are available in `.claude/agents/`:
 - `coaching-thought-extractor` — analyzes transcripts, extracts coaching insights
@@ -127,7 +147,11 @@ fi
 **Read** the Content Quality field from the file.
 
 **Gate:**
-- Flagged → present flag report to Gonzalo, stop, wait for instructions
+- Flagged → send flag summary via Telegram and wait for instructions:
+  ```bash
+  REPLY=$(./telegram_io.sh ask "🚩 Pipeline flagged content in $INPUT_TRANSCRIPT.\n\n<paste flag summary>\n\nReply 'continue' to proceed anyway, or 'stop' to abort.")
+  ```
+  If reply is `stop` or timeout → abort pipeline. If reply is `continue` → proceed to Stage 2.
 - Weak or Strong → continue to Stage 2
 
 ---
@@ -161,8 +185,12 @@ ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
 - Entry file exists → continue to Stage 3
 - Entry file missing → stop pipeline, report failure
 
-**Note:** kb-curator may pause for theme/framework approval. Surface the request
-to Gonzalo, collect the response, pass it back to kb-curator, then continue.
+**Note:** kb-curator may pause for theme/framework approval. When it does,
+send the request via Telegram and wait for the reply:
+```bash
+REPLY=$(./telegram_io.sh ask "📚 KB Curator needs your input:\n\n<paste curator's question>\n\nReply with your answer.")
+```
+Pass Gonzalo's reply back to kb-curator as additional input, then continue.
 
 ---
 
@@ -331,7 +359,7 @@ Notion: N new research tasks added
 |-------|---------|--------|
 | Any | Specialized agent not found or not registered | Stop pipeline immediately, report which agent failed to load — do NOT substitute with general-purpose |
 | 1 | Output file missing or incomplete | Re-invoke once, then stop — **never write the file yourself** |
-| 1 | Content Flagged | Stop, present flag to Gonzalo, wait |
+| 1 | Content Flagged | Send flag via Telegram, wait for reply; abort if 'stop' or timeout |
 | 2 | Output file missing | Stop pipeline, report |
 | 2 | Vault entry file missing | Stop pipeline, report |
 | 3 | Blog post file missing or empty | Re-invoke once, then report |
